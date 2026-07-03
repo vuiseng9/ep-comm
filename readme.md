@@ -7,7 +7,7 @@
 
 > **WIP Code cleanup and writeup in progress** 
 
-**Early Results on 8xH100, 2-layer MoE Transformer Layers.**
+**Early Results on 8xH100, 1-layer MoE Transformer Layers.**
 
 ![alt text](table.png)
 
