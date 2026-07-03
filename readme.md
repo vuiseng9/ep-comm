@@ -27,7 +27,6 @@ References:
 * [PyTorch Symmetric Memory: A New Programming Paradigm for Distributed AI - Ke Wen & Chien-Chin Huang][ptcf25-symmmem]
 * [PyTorch APIs for High Performance MoE Training and Inference - D. Vega-Myhre; Ke Wen & N. Gimelshein][ptcf25-api4moe]
 
-
 [doc-symmem]: https://docs.pytorch.org/docs/2.12/symmetric_memory.html
 [ptcf25-symmmem]: https://www.youtube.com/watch?v=5vfcTjosGLg
 [ptcf25-api4moe]: https://www.youtube.com/watch?v=h6LjH6Jkaf0
