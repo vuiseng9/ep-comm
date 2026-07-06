@@ -13,19 +13,6 @@
             "subProcess": false
         },
         {
-            "name": "ds",
-            "type": "debugpy",
-            "request": "launch",
-            "console": "integratedTerminal",
-            "justMyCode": false,
-            "env": {},
-            "cwd": "${workspaceFolder}",
-            "program": 
-                "train_gpt.py",
-                // "ds.py",
-            "args": []
-        },
-        {
             "name": "vs-py",
             "type": "debugpy",
             "request": "launch",
@@ -33,9 +20,9 @@
             "justMyCode": false,
             "env": {},
             "cwd": "${workspaceFolder}",
-            "program": "1xgpu_dist_train_moe.py",
+            "program": "<non torch run script>",
             "args": [
-                "-lbloss", 
+                // "-lbloss", 
                 // "-bf16"
             ]
         },
