@@ -54,18 +54,18 @@ Our overarching goal is to demonstrate an optimized expert-parallel MoE dispatch
 ## Results
 **Early Results on 8xH100, 1-layer MoE Transformer Layers.**
 
-![alt text](table.png)
+![alt text](assets/table.png)
 
 ### Training-step profiles 
 *Observe ranges of fwd, bwd, spot dispatch & combine.*
 
 NCCL-EP (dispatch.forward is wide (long) enough to be visible)
 
-![alt text](nccl-ep.png)
+![alt text](assets/nccl-ep.png)
 
 SymmMem-EP (dispatch.forward is harder to spot since it is compressed)
 
-![alt text](symmmem-ep.png)
+![alt text](assets/symmmem-ep.png)
 
 References:
 * [PyTorch Symmetric Memory: A New Programming Paradigm for Distributed AI - Ke Wen & Chien-Chin Huang][ptcf25-symmmem]
