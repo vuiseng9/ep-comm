@@ -1,3 +1,6 @@
+> *Status: Work in progress. Core implementation and early results are available.*
+
+> *Clean codes, more benchmarks, Nsys traces, and documentation are coming.*
 
 ## Expert-Parallel (EP) Comm. for MoE Training using Pytorch Symmetry Memory
 
@@ -7,7 +10,7 @@
 * Benchmarked against host-initiated EP (NCCL), 
 * with Nsys profiling visualizations.
 
-
+> 
 
 
 ## Introduction
