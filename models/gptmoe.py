@@ -1,8 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from .mha import MHA
-from .gqa import GQA
+from .attn import Attn
 from .moe import MoE
 from .rope import RoPE
 from .token_shuffler import EPBackend
@@ -35,10 +34,7 @@ class TxBlock(nn.Module):
         self.EPR = E // EP
         self.lbgamma = lbgamma
         self.lbforce = lbforce
-        if G > 1:
-            self.attn = GQA(D, H, G, rope)
-        else:
-            self.attn = MHA(D, H, rope)
+        self.attn = Attn(D, H, G, rope)
         self.moe = MoE(E, K, EP, D, Dff, ep_backend, lbgamma, lbforce)
 
     def extra_repr(self):

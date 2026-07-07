@@ -44,7 +44,7 @@ def main(
     use_lbbias: bool = typer.Option(False, "-lbbias", help="biasing router for load balancing"),
     use_lbperf: bool = typer.Option(False, "-lbperf", help="perf related paths, including force load balancing by directly overriding router decisions with statistically even distribution"),
     gbs: int = typer.Option(64, "-gbs", help="global batch size"),
-    lr: float = typer.Option(5e-3, "-lr", help="learning rate"),
+    lr: float = typer.Option(1e-2, "-lr", help="learning rate"),
     max_steps: int = typer.Option(1000, "-max-step", help="stop training after this many training (optimizer) steps"),
     max_epochs: int = typer.Option(None, "-max-epoch", help="maximum number of epochs to train"),
     ptick: int = typer.Option(100, "-ptick", help="print period in training steps"),
@@ -239,7 +239,7 @@ def main(
 
     print_(f"\n{model.module.extra_repr()}")
     print_(f"{step_per_ep} steps/epoch, {step_per_val} steps/val, " \
-           f"{GBS} gbs, {MBS} mbs, {MAX_STEPS} train steps, skip_val={SKIP_EVAL}")
+           f"{GBS} gbs, {MBS} mbs, {MAX_STEPS} train steps, skip_val={SKIP_EVAL}, lr={LR:.1e}")
 
     epoch = 0
     global_step = 0
