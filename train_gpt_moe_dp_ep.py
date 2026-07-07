@@ -18,7 +18,7 @@ from models.token_shuffler import EPBackend
 from utils import yellow, cyan, green
 from utils import rank_print as print_
 from utils import Meter
-from profiler import NsysTrainProfiler
+from utils import NsysTrainProfiler
 
 # disable tf32 compute, critical for gradient accumulation equivalence
 torch.backends.cuda.matmul.allow_tf32 = False
