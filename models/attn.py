@@ -1,7 +1,7 @@
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.attention import sdpa_kernel, SDPBackend
-from torch.cuda.nvtx import range as nvtx_range
+from nvtx import annotate as nvtx_annotate
 
 
 class Attn(nn.Module):
@@ -35,7 +35,7 @@ class Attn(nn.Module):
         head, tail = super().__repr__().split("\n", 1)
         return head + "\n  " + extra + "\n" + tail
 
-    @nvtx_range("fw.Attn")
+    @nvtx_annotate("fw.Attn", color="lightgreen")
     def forward(self, x, mask=None):
         B, L, D = x.shape
         residual = x

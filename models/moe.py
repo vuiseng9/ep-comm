@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.distributed as dist
-from torch.cuda.nvtx import range as nvtx_range
+from nvtx import annotate as nvtx_annotate
+
 
 from models.token_shuffler.local import LocalTokenShuffler
 
@@ -94,7 +95,7 @@ class MoE(nn.Module):
         else:
             self.lbbias.data -= self.lbgamma * (self.load_per_expert - self.lb_target)
 
-    @nvtx_range("fw.MoE")    
+    @nvtx_annotate("fw.MoE", color="lime")    
     def forward(self, x):
         residual = x
         B, S, D = x.shape

@@ -1,7 +1,7 @@
 import torch
 import torch.distributed as dist
 import torch.distributed._symmetric_memory as symm_mem
-from torch.cuda.nvtx import range as nvtx_range
+from nvtx import annotate as nvtx_annotate
 from .base import MoETokenShuffler
 
 _symm_mem_backend_initialized = False
@@ -36,15 +36,15 @@ class NaiveSymmMemTokenShuffler(MoETokenShuffler):
         self.max_in = k_eids.numel()
         self.max_out = max(int(self.max_in*1.15), 256)
 
-        with nvtx_range(f"dispatch.fw"):
+        with nvtx_annotate("dispatch.fw", color="darkorange"):
             tokens_by_eid_order, ntok_per_eid, weights_by_eid_order = self.permute_for_dispatch(tokens, k_eids, k_weights)
             routed = self.dispatch(tokens_by_eid_order, ntok_per_eid)
             offset = self.out_so[0].view(self.EPR, self.EP).sum(dim=1).cumsum(dim=0).to(torch.int32)
         
-        with nvtx_range("experts.fw"):
+        with nvtx_annotate("experts.fw", color="lightskyblue"):
             expert_computed_tokens = self.expert_compute(routed, offset)
 
-        with nvtx_range(f"combine.fw"):
+        with nvtx_annotate("combine.fw", color="deeppink"):
             combined_tokens, _ = self.combine(expert_computed_tokens)
             combined_tokens = self.apply_router_probs(combined_tokens, weights_by_eid_order.unsqueeze(-1))
             moe_outputs = self.restore_token_order(combined_tokens)
@@ -105,7 +105,7 @@ class NaiveSymmMemTokenShuffler(MoETokenShuffler):
 # ────────────────────────────────────────────────
 class NaiveSymmMemDispatchFunc(torch.autograd.Function):
     @staticmethod
-    @nvtx_range("fw.NaiveSymmMemDispatchFunc")
+    @nvtx_annotate("fw.a2a_dispatch", color="darkorange")
     def forward(ctx, inp, in_splits, group_name, max_in_numel, max_out_numel):
         device, H = inp.device, inp.shape[1]
         E = in_splits.shape[0]
@@ -132,7 +132,7 @@ class NaiveSymmMemDispatchFunc(torch.autograd.Function):
         return out_symm, out_so
 
     @staticmethod
-    @nvtx_range("bw.NaiveSymmMemDispatchFunc")
+    @nvtx_annotate("bw.a2a_dispatch", color="darkorange")
     def backward(ctx, grad_out, _grad_so):
         (out_so,) = ctx.saved_tensors
         device, H = grad_out.device, grad_out.shape[1]
@@ -162,7 +162,7 @@ class NaiveSymmMemDispatchFunc(torch.autograd.Function):
 # ────────────────────────────────────────────────
 class NaiveSymmMemCombineFunc(torch.autograd.Function):
     @staticmethod
-    @nvtx_range("fw.NaiveSymmMemCombineFunc")
+    @nvtx_annotate("fw.a2a_combine", color="deeppink")
     def forward(ctx, inp, in_splits_offsets, group_name,
                 max_in_numel, max_out_numel):
         device, H = inp.device, inp.shape[1]
@@ -192,7 +192,7 @@ class NaiveSymmMemCombineFunc(torch.autograd.Function):
         return out_symm, out_so
 
     @staticmethod
-    @nvtx_range("bw.NaiveSymmMemCombineFunc")
+    @nvtx_annotate("bw.a2a_combine", color="deeppink")
     def backward(ctx, grad_out, _grad_out_so):
         (in_so,) = ctx.saved_tensors
         rank_major_splits = in_so[0]  

@@ -217,11 +217,16 @@ prof-209-qwen3-ep-zerocopy-symm:
 
 # ──────────────────────
 __dev_dist_train_moe__:
-	DBG_ATTACH=$(dbg) $(torchrun_intra) $(ngpu) train_gpt_moe_dp_ep.py \
-		-m dev -bf16 \
-		-ep-backend $(ep) \
-		$(xargs)
+	DBG_ATTACH=$(dbg) \
+		$(nsys_cmd) \
+			$(torchrun_intra) $(ngpu) \
+				train_gpt_moe_dp_ep.py \
+					-m dev -bf16 \
+					-ep-backend $(ep) \
+					$(nsys_args) \
+					$(xargs)
 
+# append prof=1 prof_step=5 to turn on nsys profiling
 000-dev-dp-only:
 	$(MAKE) __dev_dist_train_moe__ ep=local xargs=-lbloss
 
@@ -237,6 +242,5 @@ __dev_dist_train_moe__:
 009-dev-ep-zerocopy-symm:
 	$(MAKE) __dev_dist_train_moe__ ep=zerocopy_symm xargs=-lbperf
 
-dev-prof-analyze: purge-prof-dir
-	$(MAKE) 105-bench-olmoe-ep-host-nccl
-	$(MAKE) __analyze-nsys-rep rep=nsys-prof/prof-105-bench-olmoe-ep-host-nccl-step_55.nsys-rep
+dev-prof:
+	$(MAKE) 000-dev-dp-only prof=1 prof_name=$@ prof_step=5

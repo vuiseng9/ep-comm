@@ -1,5 +1,5 @@
 import torch
-from torch.cuda.nvtx import range as nvtx_range
+from nvtx import annotate as nvtx_annotate
 from .base import MoETokenShuffler
 
 # ────────────────────────────────────────────────
@@ -13,13 +13,13 @@ class LocalTokenShuffler(MoETokenShuffler):
     """
     def __call__(self, tokens, k_eids, k_weights):
 
-        with nvtx_range(f"dispatch.fw"):
+        with nvtx_annotate("dispatch.fw", color="darkorange"):
             tokens_by_eid_order, eid_offs, weights_by_eid_order =self.permute_for_expert_compute(tokens, k_eids, k_weights)
         
-        with nvtx_range(f"experts.fw"):  
+        with nvtx_annotate("experts.fw", color="lightskyblue"):  
             expert_computed_tokens = self.expert_compute(tokens_by_eid_order, eid_offs)
         
-        with nvtx_range(f"combine.fw"):
+        with nvtx_annotate("combine.fw", color="deeppink"):
             weighted_expert_computed_tokens = self.apply_router_probs(expert_computed_tokens, weights_by_eid_order)
             moe_outputs = self.restore_token_order(weighted_expert_computed_tokens)
 

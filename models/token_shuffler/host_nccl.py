@@ -1,6 +1,6 @@
 import torch
 import torch.distributed as dist
-from torch.cuda.nvtx import range as nvtx_range
+from nvtx import annotate as nvtx_annotate
 from .base import MoETokenShuffler
 
 # ────────────────────────────────────────────────
@@ -13,16 +13,16 @@ class HostNcclTokenShuffler(MoETokenShuffler):
     (torch.distributed.all_to_all_single)
     """
     def __call__(self, tokens, k_eids, k_weights):
-        with nvtx_range(f"dispatch.fw"):
+        with nvtx_annotate("dispatch.fw", color="darkorange"):
             tokens_rank_major, ntok_per_eid, weights_rank_major =self.permute_for_dispatch(tokens, k_eids, k_weights)
             dispatched_tokens = self.dispatch(tokens_rank_major, ntok_per_eid)
             expert_major_tokens = self.permute_for_expert_compute(dispatched_tokens)
             eid_offs = self.recv_expert_splits_2d.sum(0).cumsum(0).to(torch.int32)
 
-        with nvtx_range(f"experts.fw"):    
+        with nvtx_annotate("experts.fw", color="lightskyblue"):    
             expert_computed_tokens = self.expert_compute(expert_major_tokens, eid_offs)
         
-        with nvtx_range(f"combine.fw"):
+        with nvtx_annotate("combine.fw", color="deeppink"):
             expert_computed_tokens =self.unpermute_for_combine(expert_computed_tokens)
             combined_tokens = self.combine(expert_computed_tokens)
             combined_tokens = self.apply_router_probs(combined_tokens, weights_rank_major)
@@ -56,7 +56,7 @@ class HostNcclTokenShuffler(MoETokenShuffler):
         self.dest_rank_splits = dest_expert_splits_2d.sum(1).tolist()
         self.recv_rank_splits = self.recv_expert_splits_2d.sum(1).tolist() 
         
-        return AlltoAllFunc.apply(tokens, self.recv_rank_splits, self.dest_rank_splits, self.ep_group)
+        return DispatchAlltoAllFunc.apply(tokens, self.recv_rank_splits, self.dest_rank_splits, self.ep_group)
     
     def permute_for_expert_compute(self, dispatched_tokens):
         # --- build/initialize expert id of dispatched tokens
@@ -79,7 +79,7 @@ class HostNcclTokenShuffler(MoETokenShuffler):
         return expert_computed_tokens.index_select(0, self.inv_idx)
 
     def combine(self, expert_computed_tokens):
-        return AlltoAllFunc.apply(
+        return CombineAlltoAllFunc.apply(
             expert_computed_tokens, self.dest_rank_splits, self.recv_rank_splits, self.ep_group)
 
     def apply_router_probs(self, expert_computed_tokens, weights_by_eid_order):
@@ -94,7 +94,6 @@ class HostNcclTokenShuffler(MoETokenShuffler):
 # ────────────────────────────────────────────────
 class AlltoAllFunc(torch.autograd.Function):
     @staticmethod
-    @nvtx_range("fw.AlltoAllFunc")
     def forward(ctx, inp, out_splits, in_splits, group):
         out = inp.new_empty(sum(out_splits), inp.shape[1])
         dist.all_to_all_single(out, inp.contiguous(), out_splits, in_splits, group=group)
@@ -103,7 +102,6 @@ class AlltoAllFunc(torch.autograd.Function):
         return out
 
     @staticmethod
-    @nvtx_range("bw.AlltoAllFunc")
     def backward(ctx, grad_out):
         grad_in = grad_out.new_empty(ctx.in_rows, grad_out.shape[1])
         # transpose: swap the split roles
@@ -111,3 +109,25 @@ class AlltoAllFunc(torch.autograd.Function):
             grad_in, grad_out.contiguous(), ctx.in_splits, ctx.out_splits, group=ctx.group
         )
         return grad_in, None, None, None
+
+class DispatchAlltoAllFunc(AlltoAllFunc):
+    @staticmethod
+    @nvtx_annotate("fw.a2a_dispatch", color="darkorange")
+    def forward(ctx, inp, out_splits, in_splits, group):
+        return AlltoAllFunc.forward(ctx, inp, out_splits, in_splits, group)
+
+    @staticmethod
+    @nvtx_annotate("bw.a2a_dispatch", color="darkorange")
+    def backward(ctx, grad_out):
+        return AlltoAllFunc.backward(ctx, grad_out)
+
+class CombineAlltoAllFunc(AlltoAllFunc):
+    @staticmethod
+    @nvtx_annotate("fw.a2a_combine", color="deeppink")
+    def forward(ctx, inp, out_splits, in_splits, group):
+        return AlltoAllFunc.forward(ctx, inp, out_splits, in_splits, group)
+
+    @staticmethod
+    @nvtx_annotate("bw.a2a_combine", color="deeppink")
+    def backward(ctx, grad_out):
+        return AlltoAllFunc.backward(ctx, grad_out)

@@ -2,6 +2,7 @@ from contextlib import nullcontext, contextmanager
 
 import torch
 import torch.distributed as dist
+import nvtx
 
 from utils import rank_print, get_dist_info
 from utils import yellow, red, green, cyan
@@ -16,7 +17,7 @@ class _NsysTrainStep:
         return self._profiler._range(self._step, stage)
 
 class NsysTrainProfiler:
-    def __init__(self, start: int, end: int, train_step_label: str = "train_step_range"):
+    def __init__(self, start: int, end: int, train_step_label: str = "train_step_range", domain: str = None):
 
         self.enabled = start is not None and end is not None
         if self.enabled:
@@ -25,6 +26,7 @@ class NsysTrainProfiler:
         self.start = start
         self.end = end
         self._emit_ctx = None
+        self.domain = domain
         self.train_step_label = train_step_label
         self.is_dist, self.rank, _, _, _ = get_dist_info()    
         
@@ -57,14 +59,24 @@ class NsysTrainProfiler:
         match stage:
             case 'full':
                 # marking one complete training step
-                return torch.cuda.nvtx.range(f"{self.train_step_label} @ step_{step}")
+                return nvtx.annotate(message=f"{self.train_step_label} @ step_{step}",
+                                     domain=self.domain,
+                                     color="gold")
             case 'data':
-                return torch.cuda.nvtx.range("tr-data")
+                return nvtx.annotate(message="tr-data",
+                                     domain=self.domain,
+                                     color="darkblue")
             case 'fwd':
-                return torch.cuda.nvtx.range("tr-forward")
+                return nvtx.annotate(message="tr-forward",
+                                     domain=self.domain,
+                                     color="green")
             case 'bwd':
-                return torch.cuda.nvtx.range("tr-backward")
+                return nvtx.annotate(message="tr-backward",
+                                     domain=self.domain,
+                                     color="purple")
             case 'opt':
-                return torch.cuda.nvtx.range("tr-optimize")
+                return nvtx.annotate(message="tr-optimize",
+                                     domain=self.domain,
+                                     color="red")
             case _:
                 raise ValueError(f"unsupported stage: {stage}")
