@@ -58,7 +58,7 @@ def main(
     rank = int(os.environ["LOCAL_RANK"])
     torch.cuda.set_device(rank)
     
-    if os.environ.get("EP_BACKEND", "nccl").lower() == "nccl":
+    if ep_backend == EPBackend.HOST_NCCL.value:
         dist.init_process_group(backend="nccl", device_id=rank)
     else:
         opts = dist.ProcessGroupNCCL.Options()
