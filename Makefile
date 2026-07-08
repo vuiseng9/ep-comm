@@ -21,12 +21,13 @@ endif
 ifeq ($(prof),1)
 define nsys_cmd
 mkdir -p $(prof_dir)
-nsys profile \
-  --capture-range=cudaProfilerApi \
-  --capture-range-end=stop \
-  -t cuda,nvtx,cudnn,cublas \
-  -o $(prof_dir)/$(prof_name)-step_$(prof_step) \
-  --force-overwrite true
+DBG_ATTACH=$(dbg) \
+	nsys profile \
+		--capture-range=cudaProfilerApi \
+		--capture-range-end=stop \
+		-t cuda,nvtx,cudnn,cublas \
+		-o $(prof_dir)/$(prof_name)-step_$(prof_step) \
+		--force-overwrite true
 endef
 nsys_args = -nsys-start $(prof_step) -nsys-end $(prof_step)
 log_cmd =
@@ -115,17 +116,16 @@ __analyze-nsys-rep:
 # ──────────────────────
 # -lbperf, forcing balanced expert load for benchmarking/profiling
 ___bench_dist_train_moe___:
-	DBG_ATTACH=$(dbg) \
-		$(nsys_cmd) \
-			$(torchrun_intra) $(ngpu) \
-				train_gpt_moe_dp_ep.py \
-					-bf16 \
-					-lbperf \
-					-m $(model) -ep-backend $(ep) \
-					-gbs $(shell echo $$(($(mbs) * $(ngpu)))) \
-					-ptick $(ptick) -skip-eval \
-					-max-step $(max_steps) \
-					$(nsys_args)
+	$(nsys_cmd) \
+		$(torchrun_intra) $(ngpu) \
+			train_gpt_moe_dp_ep.py \
+				-bf16 \
+				-lbperf \
+				-m $(model) -ep-backend $(ep) \
+				-gbs $(shell echo $$(($(mbs) * $(ngpu)))) \
+				-ptick $(ptick) -skip-eval \
+				-max-step $(max_steps) \
+				$(nsys_args)
 
 # ──────────────────────
 __bench_olmoe__:
