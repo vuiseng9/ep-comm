@@ -4,9 +4,11 @@ dbg ?= 0
 xargs +=
 nsys_cmd ?=
 nsys_args ?=
-prof_step ?= 
-prof_name ?=
+base_step ?= 
+end_step ?=
+rep_name ?=
 prof_dir ?= ./nsys-prof
+bench_dir ?= ./nsys-bench
 logs_dir ?= ./logs
 log_cmd ?=
 rep ?= 
@@ -18,19 +20,27 @@ log_cmd = 2>&1 | tee $(logs_dir)/$(logname).log
 endif
 
 # disable logging by design
-ifeq ($(prof),1)
-define nsys_cmd
-mkdir -p $(prof_dir)
+ifneq ($(filter 1,$(prof) $(bench)),)
+  ifeq ($(bench),1)
+    _ := $(shell mkdir -p $(bench_dir))
+    end_step = $(shell echo $$(($(base_step) + 25)))
+    out_path = $(bench_dir)/$(rep_name)-step_$(base_step)-$(end_step)
+  else
+    _ := $(shell mkdir -p $(prof_dir))
+    end_step = $(base_step)
+    out_path = $(prof_dir)/$(rep_name)-step_$(base_step)
+  endif
+  define nsys_cmd
 DBG_ATTACH=$(dbg) \
 	nsys profile \
 		--capture-range=cudaProfilerApi \
 		--capture-range-end=stop \
 		-t cuda,nvtx,cudnn,cublas \
-		-o $(prof_dir)/$(prof_name)-step_$(prof_step) \
+		-o $(out_path) \
 		--force-overwrite true
-endef
-nsys_args = -nsys-start $(prof_step) -nsys-end $(prof_step)
-log_cmd =
+  endef
+  nsys_args = -nsys-start $(base_step) -nsys-end $(end_step)
+  log_cmd =
 endif
 
 # nvidia pytorch docker image work out of the box, not installation needed.
@@ -39,33 +49,16 @@ endif
 install-dep:
 	pip install transformers datasets typer debugpy
 
+clear-output: purge-prof-dir purge-log-dir purge-bench-dir
+
+purge-bench-dir:
+	rm -rf $(bench_dir)
+
 purge-prof-dir:
 	rm -rf $(prof_dir)
 
 purge-log-dir:
 	rm -rf $(logs_dir)
-
-clear-output: purge-prof-dir purge-log-dir
-
-bench-all:
-	$(MAKE) bench-all-olmoe
-	$(MAKE) bench-all-qwen3
-
-bench-all-olmoe:
-	$(MAKE) 100-bench-olmoe-dp-only
-	$(MAKE) 105-bench-olmoe-ep-host-nccl
-	$(MAKE) 107-bench-olmoe-ep-naive_symm
-	$(MAKE) 108-bench-olmoe-ep-pooled-symm
-	$(MAKE) 109-bench-olmoe-ep-zerocopy-symm
-
-bench-all-qwen3:
-	$(MAKE) 200-bench-qwen3-dp-only
-	$(MAKE) 205-bench-qwen3-ep-host-nccl
-	$(MAKE) 207-bench-qwen3-ep-naive_symm
-	$(MAKE) 208-bench-qwen3-ep-pooled-symm
-	$(MAKE) 209-bench-qwen3-ep-zerocopy-symm
-
-do-prof-analyze-all: prof-all analyze-all
 
 prof-all:
 	$(MAKE) prof-all-olmoe
@@ -85,26 +78,35 @@ prof-all-qwen3:
 	$(MAKE) prof-208-qwen3-ep-pooled-symm
 	$(MAKE) prof-209-qwen3-ep-zerocopy-symm
 
-analyze-all:
-	$(MAKE) analyze-all-olmoe
-	$(MAKE) analyze-all-qwen3
+do-bench-analyze-all: bench-all analyze-all
 
-analyze-all-olmoe:
-	$(MAKE) __analyze-nsys-rep rep=$(prof_dir)/prof-100-olmoe-dp-only-step_$(ol_step).nsys-rep
-	$(MAKE) __analyze-nsys-rep rep=$(prof_dir)/prof-105-olmoe-ep-host-nccl-step_$(ol_step).nsys-rep
-	$(MAKE) __analyze-nsys-rep rep=$(prof_dir)/prof-107-olmoe-ep-naive_symm-step_$(ol_step).nsys-rep
-	$(MAKE) __analyze-nsys-rep rep=$(prof_dir)/prof-108-olmoe-ep-pooled-symm-step_$(ol_step).nsys-rep
-	$(MAKE) __analyze-nsys-rep rep=$(prof_dir)/prof-109-olmoe-ep-zerocopy-symm-step_$(ol_step).nsys-rep
+bench-all:
+	$(MAKE) bench-all-olmoe
+	$(MAKE) bench-all-qwen3
 
-analyze-all-qwen3: 
-	$(MAKE) __analyze-nsys-rep rep=$(prof_dir)/prof-200-qwen3-dp-only-step_$(q3_step).nsys-rep
-	$(MAKE) __analyze-nsys-rep rep=$(prof_dir)/prof-205-qwen3-ep-host-nccl-step_$(q3_step).nsys-rep
-	$(MAKE) __analyze-nsys-rep rep=$(prof_dir)/prof-207-qwen3-ep-naive_symm-step_$(q3_step).nsys-rep
-	$(MAKE) __analyze-nsys-rep rep=$(prof_dir)/prof-208-qwen3-ep-pooled-symm-step_$(q3_step).nsys-rep
-	$(MAKE) __analyze-nsys-rep rep=$(prof_dir)/prof-209-qwen3-ep-zerocopy-symm-step_$(q3_step).nsys-rep
+bench-all-olmoe:
+	$(MAKE) bench-100-olmoe-dp-only
+	$(MAKE) bench-105-olmoe-ep-host-nccl
+	$(MAKE) bench-107-olmoe-ep-naive_symm
+	$(MAKE) bench-108-olmoe-ep-pooled-symm
+	$(MAKE) bench-109-olmoe-ep-zerocopy-symm
 
-# usage: make analyze-nsys-rep rep=<path_to_nsys_report>
-__analyze-nsys-rep:
+bench-all-qwen3:
+	$(MAKE) bench-200-qwen3-dp-only
+	$(MAKE) bench-205-qwen3-ep-host-nccl
+	$(MAKE) bench-207-qwen3-ep-naive_symm
+	$(MAKE) bench-208-qwen3-ep-pooled-symm
+	$(MAKE) bench-209-qwen3-ep-zerocopy-symm
+
+# analyze every .nsys-rep file found in prof_dir
+postprocess-nsys-bench:
+	find $(bench_dir) -name '*.nsys-rep' | sort | while read rep; do \
+		$(MAKE) __get-stats-keyranges__ rep=$$rep; \
+	done
+	python process_keyranges.py
+
+# usage: make get-stats-keyranges rep=<path_to_nsys_report>
+__get-stats-keyranges__:
 	nsys stats --report nvtx_gpu_proj_trace --timeunit msec --format csv $(rep) --output $(rep) --force-export=true --force-overwrite=true
 	nsys stats --report nvtx_gpu_proj_sum   --timeunit msec --format csv $(rep) --output $(rep) --force-overwrite=true
 	grep ^Range $(rep)_nvtx_gpu_proj_sum.csv | tee $(rep).keyranges.csv
@@ -115,7 +117,7 @@ __analyze-nsys-rep:
 	
 # ──────────────────────
 # -lbperf, forcing balanced expert load for benchmarking/profiling
-___bench_dist_train_moe___:
+___dist_train_moe___:
 	$(nsys_cmd) \
 		$(torchrun_intra) $(ngpu) \
 			train_gpt_moe_dp_ep.py \
@@ -128,92 +130,132 @@ ___bench_dist_train_moe___:
 				$(nsys_args)
 
 # ──────────────────────
-__bench_olmoe__:
+__train_olmoe__:
 	mkdir -p $(logs_dir)
-	$(MAKE) ___bench_dist_train_moe___ model=olmoe-1b-7b \
+	$(MAKE) ___dist_train_moe___ model=olmoe-1b-7b \
 				mbs=16 max_steps=100 ptick=10 \
 				$(log_cmd)
 
-100-bench-olmoe-dp-only:
-	$(MAKE) __bench_olmoe__ log=1 logname=$@ ep=local 
+100-olmoe-dp-only:
+	$(MAKE) __train_olmoe__ log=1 logname=$@ ep=local 
 
 prof-100-olmoe-dp-only:
-	$(MAKE) 100-bench-olmoe-dp-only \
-		prof_name=$@ prof=1 prof_step=$(ol_step) 
+	$(MAKE) 100-olmoe-dp-only \
+		rep_name=$@ prof=1 base_step=$(ol_step) 
 
-105-bench-olmoe-ep-host-nccl:
-	$(MAKE) __bench_olmoe__ log=1 logname=$@ ep=host_nccl 
+bench-100-olmoe-dp-only:
+	$(MAKE) 100-olmoe-dp-only \
+		rep_name=$@ bench=1 base_step=$(ol_step)
+
+105-olmoe-ep-host-nccl:
+	$(MAKE) __train_olmoe__ log=1 logname=$@ ep=host_nccl 
 
 prof-105-olmoe-ep-host-nccl:
-	$(MAKE) 105-bench-olmoe-ep-host-nccl \
-		prof_name=$@ prof=1 prof_step=$(ol_step) 
+	$(MAKE) 105-olmoe-ep-host-nccl \
+		rep_name=$@ prof=1 base_step=$(ol_step) 
 
-107-bench-olmoe-ep-naive_symm:
-	$(MAKE) __bench_olmoe__ log=1 logname=$@ ep=naive_symm
+bench-105-olmoe-ep-host-nccl:
+	$(MAKE) 105-olmoe-ep-host-nccl \
+		rep_name=$@ bench=1 base_step=$(ol_step)
+
+107-olmoe-ep-naive_symm:
+	$(MAKE) __train_olmoe__ log=1 logname=$@ ep=naive_symm
 
 prof-107-olmoe-ep-naive_symm:
-	$(MAKE) 107-bench-olmoe-ep-naive_symm \
-		prof_name=$@ prof=1 prof_step=$(ol_step) 
+	$(MAKE) 107-olmoe-ep-naive_symm \
+		rep_name=$@ prof=1 base_step=$(ol_step) 
 
-108-bench-olmoe-ep-pooled-symm:
-	$(MAKE) __bench_olmoe__ log=1 logname=$@ ep=pooled_symm
+bench-107-olmoe-ep-naive_symm:
+	$(MAKE) 107-olmoe-ep-naive_symm \
+		rep_name=$@ bench=1 base_step=$(ol_step)
+
+108-olmoe-ep-pooled-symm:
+	$(MAKE) __train_olmoe__ log=1 logname=$@ ep=pooled_symm
 
 prof-108-olmoe-ep-pooled-symm:
-	$(MAKE) 108-bench-olmoe-ep-pooled-symm \
-		prof_name=$@ prof=1 prof_step=$(ol_step) 
+	$(MAKE) 108-olmoe-ep-pooled-symm \
+		rep_name=$@ prof=1 base_step=$(ol_step) 
 
-109-bench-olmoe-ep-zerocopy-symm:
-	$(MAKE) __bench_olmoe__ log=1 logname=$@ ep=zerocopy_symm
+bench-108-olmoe-ep-pooled-symm:
+	$(MAKE) 108-olmoe-ep-pooled-symm \
+		rep_name=$@ bench=1 base_step=$(ol_step)
+
+109-olmoe-ep-zerocopy-symm:
+	$(MAKE) __train_olmoe__ log=1 logname=$@ ep=zerocopy_symm
 
 prof-109-olmoe-ep-zerocopy-symm:
-	$(MAKE) 109-bench-olmoe-ep-zerocopy-symm \
-		prof_name=$@ prof=1 prof_step=$(ol_step) 
+	$(MAKE) 109-olmoe-ep-zerocopy-symm \
+		rep_name=$@ prof=1 base_step=$(ol_step) 
+
+bench-109-olmoe-ep-zerocopy-symm:
+	$(MAKE) 109-olmoe-ep-zerocopy-symm \
+		rep_name=$@ bench=1 base_step=$(ol_step)
 
 # ──────────────────────
-__bench_qwen3__:
+__train_qwen3__:
 	mkdir -p $(logs_dir)
-	$(MAKE) ___bench_dist_train_moe___ model=qwen3-30b-a3b \
+	$(MAKE) ___dist_train_moe___ model=qwen3-30b-a3b \
 				mbs=4 max_steps=100 ptick=10 \
 				$(log_cmd)
 
-200-bench-qwen3-dp-only:
+200-qwen3-dp-only:
 	mkdir -p $(logs_dir)
-	$(MAKE) __bench_qwen3__ log=1 logname=$@ ep=local 
+	$(MAKE) __train_qwen3__ log=1 logname=$@ ep=local 
 
 prof-200-qwen3-dp-only:
-	$(MAKE) 200-bench-qwen3-dp-only \
-		prof_name=$@ prof=1 prof_step=$(q3_step)
+	$(MAKE) 200-qwen3-dp-only \
+		rep_name=$@ prof=1 base_step=$(q3_step)
 
-205-bench-qwen3-ep-host-nccl:
-	$(MAKE) __bench_qwen3__ log=1 logname=$@ ep=host_nccl 
+bench-200-qwen3-dp-only:
+	$(MAKE) 200-qwen3-dp-only \
+		rep_name=$@ bench=1 base_step=$(q3_step)
+
+205-qwen3-ep-host-nccl:
+	$(MAKE) __train_qwen3__ log=1 logname=$@ ep=host_nccl 
 
 prof-205-qwen3-ep-host-nccl:
-	$(MAKE) 205-bench-qwen3-ep-host-nccl \
-		prof_name=$@ prof=1 prof_step=$(q3_step)
+	$(MAKE) 205-qwen3-ep-host-nccl \
+		rep_name=$@ prof=1 base_step=$(q3_step)
 
-207-bench-qwen3-ep-naive_symm:
+bench-205-qwen3-ep-host-nccl:
+	$(MAKE) 205-qwen3-ep-host-nccl \
+		rep_name=$@ bench=1 base_step=$(q3_step)
+
+207-qwen3-ep-naive_symm:
 	mkdir -p $(logs_dir)
-	$(MAKE) __bench_qwen3__ log=1 logname=$@ ep=naive_symm
+	$(MAKE) __train_qwen3__ log=1 logname=$@ ep=naive_symm
 
 prof-207-qwen3-ep-naive_symm:
-	$(MAKE) 207-bench-qwen3-ep-naive_symm \
-		prof_name=$@ prof=1 prof_step=$(q3_step)
+	$(MAKE) 207-qwen3-ep-naive_symm \
+		rep_name=$@ prof=1 base_step=$(q3_step)
 
-208-bench-qwen3-ep-pooled-symm:
+bench-207-qwen3-ep-naive_symm:
+	$(MAKE) 207-qwen3-ep-naive_symm \
+		rep_name=$@ bench=1 base_step=$(q3_step)
+
+208-qwen3-ep-pooled-symm:
 	mkdir -p $(logs_dir)
-	$(MAKE) __bench_qwen3__ log=1 logname=$@ ep=pooled_symm
+	$(MAKE) __train_qwen3__ log=1 logname=$@ ep=pooled_symm
 
 prof-208-qwen3-ep-pooled-symm:
-	$(MAKE) 208-bench-qwen3-ep-pooled-symm \
-		prof_name=$@ prof=1 prof_step=$(q3_step)
+	$(MAKE) 208-qwen3-ep-pooled-symm \
+		rep_name=$@ prof=1 base_step=$(q3_step)
 
-209-bench-qwen3-ep-zerocopy-symm:
+bench-208-qwen3-ep-pooled-symm:
+	$(MAKE) 208-qwen3-ep-pooled-symm \
+		rep_name=$@ bench=1 base_step=$(q3_step)
+
+209-qwen3-ep-zerocopy-symm:
 	mkdir -p $(logs_dir)
-	$(MAKE) __bench_qwen3__ log=1 logname=$@ ep=zerocopy_symm
+	$(MAKE) __train_qwen3__ log=1 logname=$@ ep=zerocopy_symm
 
 prof-209-qwen3-ep-zerocopy-symm:
-	$(MAKE) 209-bench-qwen3-ep-zerocopy-symm \
-		prof_name=$@ prof=1 prof_step=$(q3_step)
+	$(MAKE) 209-qwen3-ep-zerocopy-symm \
+		rep_name=$@ prof=1 base_step=$(q3_step)
+
+bench-209-qwen3-ep-zerocopy-symm:
+	$(MAKE) 209-qwen3-ep-zerocopy-symm \
+		rep_name=$@ bench=1 base_step=$(q3_step)
 
 # ──────────────────────
 __dev_dist_train_moe__:
@@ -226,7 +268,7 @@ __dev_dist_train_moe__:
 					$(nsys_args) \
 					$(xargs)
 
-# append prof=1 prof_step=5 to turn on nsys profiling
+# append prof=1 base_step=5 to turn on nsys profiling
 000-dev-dp-only:
 	$(MAKE) __dev_dist_train_moe__ ep=local xargs=-lbloss
 
@@ -243,4 +285,4 @@ __dev_dist_train_moe__:
 	$(MAKE) __dev_dist_train_moe__ ep=zerocopy_symm xargs=-lbperf
 
 dev-prof:
-	$(MAKE) 000-dev-dp-only prof=1 prof_name=$@ prof_step=5
+	$(MAKE) 000-dev-dp-only prof=1 rep_name=$@ base_step=5
