@@ -1,25 +1,26 @@
-> *Status: Work in progress. Core implementation and early results are available.*
-
-> *Clean codes, more benchmarks, Nsys traces, and documentation are coming.*
-
 ## Expert-Parallel (EP) Comm. for MoE Training using Pytorch Symmetry Memory
 
 * Specific to MoE Distributed Training
-* Differentiable (Autograded) Dispatch and Combine with PyTorch Symmetric Memory.
+* Differentiable (Autograded) Dispatch and Combine through PyTorch Symmetric Memory.
 * Multiple implementations including optimized versions featuring memory-pool reuse and zero-copy paths.
-* Benchmarked against host-initiated EP (NCCL), 
-* with Nsys profiling visualizations.
+* [Benchmarked](#results) against host-initiated EP (NCCL), with [Nsys profiling](#training-step-profiles).
 
-> 
-
-
+## Results
+![alt text](analysis/training_step_time_by_ep_backend.png)
+* **TLDR**: The zero-copy Symmetric Memory EP backend achieves the lowest latency, visibly in full training step, forward and backward passes, reducing step time by 9.0% on OLMoE-1B-7B and 3.7% on Qwen3-30B-A3B versus host-initiated NCCL EP. Most of the gain comes from the backward pass. Memory pooling alone provides little additional benefit, but it is necessary to enable the zero-copy path.
+* Benchmark details: 
+   * We benchmark a single MoE decoder layer to make its operations easier to identify and interpret in the Nsight Systems timeline.
+   * **OLMoE-1B-7B**: 16 mbs, 64 experts, 8 activated per token.
+   * **Qwen3-30B-A3B**: 4 mbs, 128 experts, 16 activated per token.
+   * **Procedure**: Enforce load-balanced routing, profile 25 post-warmup steps with `nsys profile`, consolidate NVTX-annotated ranges across EP ranks using `nsys stats --report nvtx_gpu_proj_sum`, and average across steps with `process_keyranges.py`.
+   
 ## Introduction
 
 GPU-initiated communication is increasingly adopted in deep learning, especially in expert-parallel MoE inference and training.
 
 In standard host-initiated communication, the NCCL collectives**, GPU-to-GPU data exchange is designed to launch from the CPU. The CPU enqueues the collective operations, while the GPU executes the communication kernels and performs the actual data movement.
 
-In contrast, device(gpu)-initiated communication lets GPU kernels directly coordinate data movement across gpu ranks. **What does GPU-side communication bring?**
+In contrast, device(gpu)-initiated communication lets GPU kernels directly coordinate data movement across gpu ranks without involving its host CPU. **What does GPU-side communication bring?**
 
 1. **Lower host-side overhead.** Eliminating or reducing CPU synchronization and repeated kernel launches improves efficiency. This is particularly useful for latency-sensitive inference, where every microsecond on the critical path matters for achieving ultra-low latency.
 1. **Fine-grained overlap and pipelining between communication and compute**.
@@ -27,15 +28,15 @@ In contrast, device(gpu)-initiated communication lets GPU kernels directly coord
 
 ### Brief Backend Concept
 
-Device-side communication uses a different communication model, Shared Memory (SHMEM) access while host-side NCCL collectives follow an MPI-like collective model. In essence, SHMEM exposes a partitioned global address space (PGAS) directly to GPU code. What does this mean? 
+Device-side communication uses a different communication model, Shared Memory (SHMEM) access while host-side NCCL collectives follow an MPI-like collective model. At its core, SHMEM exposes a partitioned global address space (PGAS) directly to GPU code. What does this mean? 
 
-Each rank owns a local partition of memory (e.g. tensor), but the same allocation is visible across all participating ranks in a **"symmetric"** way. This shared global view of GPU memory enables a GPU kernel of a rank to **directly access** a remote gpu buffer, read from or write to it, **without** asking the remote rank to explicitly participate. And **without** incurring the host CPU. This is technically called one-sided operation.  
+Each rank owns a local partition of memory, say for a tensor, the same allocation is visible across all participating ranks in a **"symmetric"** way. This shared global view of GPU memory enables a GPU kernel of a rank to **directly access** a remote gpu tensor, read from or write to it, **without** asking the remote rank to explicitly participate. And **without** incurring the host CPU. This is technically known as one-sided operation.  
 
 ### PyTorch Symmetric Memory
 
-PyTorch exposes this device-side communication model through [**Symmetric Memory**][doc-symmem]. Early implementation used PyTorch's [own][pt-forum-symmem] CUDA-backed symmetric mapping, mainly for intra-node peer access. More recently, PyTorch Symmetric Memory has expanded to build atop [NVSHMEM][nvshmem-doc], NVIDIA's SHMEM library, extending to multi-node/cluster-level, accessing peers on multi-node NVLink and RDMA interconnects.
+PyTorch exposes this device-side communication model through [**Symmetric Memory**][doc-symmem]. Early implementation used PyTorch's [own][pt-forum-symmem] CUDA-backed symmetric mapping, mainly for intra-node gpu access. More recently, PyTorch Symmetric Memory has expanded to build atop [NVSHMEM][nvshmem-doc], NVIDIA's SHMEM library, extending to multi-node/cluster-level, accessing gpus on multi-node NVLink and RDMA interconnects.
 
-The key value of is **programmability**. Instead of working directly with low-level NVSHMEM APIs, PyTorch provides symmetric-memory tensors and a small set of primitives that can be used from PyTorch code and custom Triton kernels.
+The key value of Pytorch's is **programmability**. Instead of working directly with low-level NVSHMEM APIs, PyTorch provides symmetric-memory tensors and a small set of primitives that can be used from PyTorch code and custom Triton kernels.
 
 Skimming the [APIs][doc-symmem], they can be roughly grouped into two sets. The first is operator-level functionality for common communication patterns, such as all-reduce, all-to-all etc. The second is lower-level control, such as symmetric tensor allocation, rendezvous, remote buffer access, and synchronization primitives. These lower-level pieces are what allow customization, especially useful with Triton kernels to directly participate in communication. See Meta's open-source [Kraken][kraken-gh] for examples of distributed Triton kernels using PyTorch Symmetric Memory.
 
@@ -91,26 +92,33 @@ prof-108-olmoe-ep-pooled-symm     prof-208-qwen3-ep-pooled-symm
 prof-109-olmoe-ep-zerocopy-symm   prof-209-qwen3-ep-zerocopy-symm
 ```
 
-## Results
-**Early Results on 8xH100, 1-layer MoE Transformer Layers.**
 
-![alt text](assets/table.png)
+## Training-step profiles 
+*Timelines are intentionally cropped to ~30–230 ms for qualitative visual comparison. Observe the color-coded ranges, i.e. forward, backward, dispatch, and combine.*
 
-### Training-step profiles 
-*Observe ranges of fwd, bwd, spot dispatch & combine.*
+>*Note: The dispatch and combine ranges in forward include token permutation operations, while the backward ranges do not, due to challenges in marking precise start and end boundaries within the autograd.*
 
-NCCL-EP (dispatch.forward is wide (long) enough to be visible)
+**Host-NCCL EP** 
 
-![alt text](assets/nccl-ep.png)
+`make prof-105-olmoe-ep-host-nccl`
 
-SymmMem-EP (dispatch.forward is harder to spot since it is compressed)
 
-![alt text](assets/symmmem-ep.png)
+![alt text](analysis/crop_prof_olmoe_105_host_nccl.png)
 
-References:
+**Zero-Copy SymmMem EP** (dispatch and combine are visibly narrower than above)
+
+`make prof-109-olmoe-ep-zerocopy-symm`
+
+
+![alt text](analysis/crop_prof_olmoe_109_zerocopy_symm.png)
+
+## References:
 * [PyTorch Symmetric Memory: A New Programming Paradigm for Distributed AI - Ke Wen & Chien-Chin Huang][ptcf25-symmmem]
 * [PyTorch APIs for High Performance MoE Training and Inference - D. Vega-Myhre; Ke Wen & N. Gimelshein][ptcf25-api4moe]
 * [PyTorch Symmetric Memory Documentation][doc-symmem]
+
+
+
 
 [ptcf25-symmmem]: https://www.youtube.com/watch?v=5vfcTjosGLg
 [ptcf25-api4moe]: https://www.youtube.com/watch?v=h6LjH6Jkaf0
@@ -121,10 +129,9 @@ References:
 [nvshmem-doc]: https://docs.nvidia.com/nvshmem/api/index.html
 
 [nccl-gin-paper]: https://arxiv.org/abs/2511.15076
-
 [flashmoe-paper]: https://arxiv.org/abs/2506.04667
-[dsv4-paper]: https://arxiv.org/abs/2606.19348v1
 
+[dsv4-paper]: https://arxiv.org/abs/2606.19348v1
 [deepgemm-megamoe-pr]: https://github.com/deepseek-ai/DeepGEMM/pull/304
 
 [mcore-a2a-dispatcher]: https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/transformer/moe/token_dispatcher.py#L354
