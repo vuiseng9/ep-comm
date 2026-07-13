@@ -53,6 +53,43 @@ Our overarching goal is to demonstrate an optimized expert-parallel MoE dispatch
 
 > Note: The Symmetric Memory EP backends in this repo improve performance, but the gains are expected to be modest. This implementation mainly reduces host-side overhead and unnecessary copies, while the larger opportunity lies in fine-grained communication-compute overlap. The kernel fusion is outside the scope of this repo and deserves a separate implementation and discussion. This repo is intended to serve as a practical entry point to PyTorch Symmetric Memory for MoE training, as well as a reference and baseline for the fused-kernel we plan to build next. 
 
+## Setup
+
+**System requirement:**
+
+- 8 GPUs to reproduce all results.
+- Minimum 2 GPUs; use the `00*` make targets for smaller runs.
+- Expert compute uses `F.grouped_mm`, which currently supports up to 16 experts per rank. Exceeding this limit throw: `RuntimeError: Number of experts must be smaller than NUM_TILES16`
+- Works on PCIe system, but performance may underperform NVLink system.
+
+**Install**: 
+1. install pytorch>=2.11/Nsight tool that works for your system.
+2. `git clone <this repo> && cd symmem-ep && make install-dep`
+
+**Docker**: 
+* use prebuilt [vuiseng9/symmem-ep][docker-symmem-ep], or build `docker build -t symmem-ep .`
+
+**Run**: 
+* Just `make <id>-tab-completion`. Reproduce published results with `make do-bench-prof-analyze-all`
+
+[Available make targets](./Makefile):
+```
+100-olmoe-dp-only                 200-qwen3-dp-only                 000-dev-dp-only
+105-olmoe-ep-host-nccl            205-qwen3-ep-host-nccl            005-dev-ep-host-nccl
+107-olmoe-ep-naive_symm           207-qwen3-ep-naive_symm           007-dev-ep-naive-symm
+108-olmoe-ep-pooled-symm          208-qwen3-ep-pooled-symm          008-dev-ep-pooled-symm
+109-olmoe-ep-zerocopy-symm        209-qwen3-ep-zerocopy-symm        009-dev-ep-zerocopy-symm
+bench-100-olmoe-dp-only           bench-200-qwen3-dp-only
+bench-105-olmoe-ep-host-nccl      bench-205-qwen3-ep-host-nccl
+bench-107-olmoe-ep-naive_symm     bench-207-qwen3-ep-naive_symm
+bench-108-olmoe-ep-pooled-symm    bench-208-qwen3-ep-pooled-symm
+bench-109-olmoe-ep-zerocopy-symm  bench-209-qwen3-ep-zerocopy-symm
+prof-100-olmoe-dp-only            prof-200-qwen3-dp-only
+prof-105-olmoe-ep-host-nccl       prof-205-qwen3-ep-host-nccl
+prof-107-olmoe-ep-naive_symm      prof-207-qwen3-ep-naive_symm
+prof-108-olmoe-ep-pooled-symm     prof-208-qwen3-ep-pooled-symm
+prof-109-olmoe-ep-zerocopy-symm   prof-209-qwen3-ep-zerocopy-symm
+```
 
 ## Results
 **Early Results on 8xH100, 1-layer MoE Transformer Layers.**
@@ -91,3 +128,5 @@ References:
 [deepgemm-megamoe-pr]: https://github.com/deepseek-ai/DeepGEMM/pull/304
 
 [mcore-a2a-dispatcher]: https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/transformer/moe/token_dispatcher.py#L354
+
+[docker-symmem-ep]: https://hub.docker.com/repository/docker/vuiseng9/symmem-ep/general

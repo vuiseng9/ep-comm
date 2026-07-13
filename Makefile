@@ -47,7 +47,7 @@ endif
 # recent version of nsys installed is also one of the reasons to use the image.
 # do install torch >= 2.11 yourself if not using pytorch docker image above
 install-dep:
-	pip install transformers datasets typer debugpy
+	pip install transformers datasets typer nvtx debugpy
 
 clear-output: purge-prof-dir purge-log-dir purge-bench-dir
 
@@ -78,7 +78,7 @@ prof-all-qwen3:
 	$(MAKE) prof-208-qwen3-ep-pooled-symm
 	$(MAKE) prof-209-qwen3-ep-zerocopy-symm
 
-do-bench-analyze-all: bench-all analyze-all
+do-bench-prof-analyze-all: bench-all postprocess-nsys-bench prof-all
 
 bench-all:
 	$(MAKE) bench-all-olmoe
