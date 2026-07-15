@@ -103,7 +103,7 @@ postprocess-nsys-bench:
 	find $(bench_dir) -name '*.nsys-rep' | sort | while read rep; do \
 		$(MAKE) __get-stats-keyranges__ rep=$$rep; \
 	done
-	python process_keyranges.py
+	python analysis/process_keyranges.py
 
 # usage: make get-stats-keyranges rep=<path_to_nsys_report>
 __get-stats-keyranges__:

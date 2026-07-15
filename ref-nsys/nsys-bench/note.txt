@@ -1,0 +1,3 @@
+This run was carried out on 26 July 11 with commit 802512.
+We remove .nsys-rep, .sqlite, nsys-rep_nvtx_gpu_proj_trace.csv which 
+would otherwise in hundreds of MBs.
